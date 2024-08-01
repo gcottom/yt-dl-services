@@ -7,13 +7,13 @@ WORKDIR /app
 # Copy the Go source code into the container
 COPY * ./
 
-RUN go mod download
+RUN go mod tidy
 
 # Build the Go application
-RUN go build -o downloader .
+RUN go build -o downloader /cmd
 
 # Use a lightweight FFmpeg image
-FROM jrottenberg/ffmpeg:latest
+FROM jrottenberg/ffmpeg:4.1-alpine
 
 # Set the working directory inside the container
 WORKDIR /app
