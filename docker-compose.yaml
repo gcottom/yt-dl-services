@@ -1,0 +1,27 @@
+services:
+  downloader:
+    build:
+      context: ./downloader
+      dockerfile: Dockerfile
+    ports:
+      - "50999:50999"
+    volumes:
+      - ./data:/app/data
+
+  genrer:
+    build:
+      context: ./genre
+      dockerfile: Dockerfile
+    ports:
+      - "50998:50998"
+    volumes:
+      - ./data:/app/data
+
+  music-api:
+    build:
+      context: ./music-api
+      dockerfile: Dockerfile
+    ports:
+      - "50997:50997"
+    volumes:
+      - ./data:/app/data
