@@ -3,8 +3,8 @@ tempDir: ./data/temp
 dbPath: ./data/database.db
 ffmpegPath: ffmpeg
 spotify:
-  clientID: 05ea53f7c95843d8b0763263181db5a7
-  clientSecret: 425bdf7a1a374ba29feebc6fd0f70efb
+  clientID: 
+  clientSecret: 
 baseURL: http://127.0.0.1
 ports:
   downloader: 50999
