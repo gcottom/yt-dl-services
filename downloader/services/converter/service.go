@@ -1,8 +1,8 @@
 package converter
 
 import (
-	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 
@@ -10,40 +10,26 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *Service) Convert(ctx context.Context, b []byte) ([]byte, error) {
-	var args = []string{"-i", "pipe:0", "-acodec", "aac", "-b:a", "192k", "-f", "ipod", "-"}
+func (s *Service) Convert(ctx context.Context, id string) error {
+	var args = []string{"-i", fmt.Sprintf("%s/%s.temp", s.Config.TempDir, id), "-c:a", "libmp3lame", "-b:a", "256k", "-f", "mp3", fmt.Sprintf("./data/%s.mp3", id)}
 	cmd := exec.Command(s.Config.FFMPEGPath, args...)
-	resultBuffer := bytes.NewBuffer(make([]byte, 0)) // pre allocate 5MiB buffer
 
-	cmd.Stderr = os.Stderr    // bind log stream to stderr
-	cmd.Stdout = resultBuffer // stdout result will be written here
-
-	stdin, err := cmd.StdinPipe() // Open stdin pipe
+	zaplog.InfoC(ctx, "converting file", zap.String("id", id))
+	err := cmd.Start() // Start a process on another goroutine
 	if err != nil {
 		zaplog.ErrorC(ctx, "conversion error", zap.Error(err))
-		return nil, err
+		return err
 	}
 
-	err = cmd.Start() // Start a process on another goroutine
-	if err != nil {
-		zaplog.ErrorC(ctx, "conversion error", zap.Error(err))
-		return nil, err
-	}
-
-	_, err = stdin.Write(b) // pump audio data to stdin pipe
-	if err != nil {
-		zaplog.ErrorC(ctx, "conversion error", zap.Error(err))
-		return nil, err
-	}
-	err = stdin.Close() // close the stdin, or ffmpeg will wait forever
-	if err != nil {
-		zaplog.ErrorC(ctx, "conversion error", zap.Error(err))
-		return nil, err
-	}
 	err = cmd.Wait() // wait until ffmpeg finish
 	if err != nil {
 		zaplog.ErrorC(ctx, "conversion error", zap.Error(err))
-		return nil, err
+		return err
 	}
-	return resultBuffer.Bytes(), nil
+	zaplog.InfoC(ctx, "conversion complete", zap.String("id", id))
+	if err := os.Remove(fmt.Sprintf("%s/%s.temp", s.Config.TempDir, id)); err != nil {
+		zaplog.ErrorC(ctx, "failed to remove temp file", zap.Error(err))
+		return err
+	}
+	return nil
 }

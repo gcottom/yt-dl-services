@@ -13,7 +13,7 @@ ytmusic = YTMusic()
 
 shutdown_flag = threading.Event()
 
-config_path = os.path.join(os.path.dirname(__file__), './../downloader/config/config.yaml')
+config_path = os.path.join(os.path.dirname(__file__), './config.yaml')
 with open(config_path, 'r') as f:
     config = yaml.safe_load(f)
 
@@ -23,9 +23,10 @@ ENDPOINTS = config['endpoints']['genre']
 
 class SimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
-        parsed_path = urlparse(self.path)
-        query_params = parse_qs(parsed_path.query)
-        if self.path == config['endpoints']['metasearch']:
+        parsed_url = urlparse(self.path)
+        query_params = parse_qs(parsed_url.query)
+        path = parsed_url.path
+        if path == '/meta':
             id = query_params['id'][0]
             data = ytmusic.get_song(id)
             vtype = data['videoDetails']['musicVideoType'].lower()
@@ -42,7 +43,7 @@ class SimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(json.dumps(response).encode('utf-8'))
-        if self.path == config['endpoints']['playlist']:
+        elif path == '/playlist':
             id = query_params['id'][0]
             tracks = ytmusic.get_playlist(playlistId=id, limit=None)
             vid = []
@@ -52,7 +53,7 @@ class SimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(json.dumps(response).encode('utf-8'))
-        if self.path == '/kill':
+        elif path == '/kill':
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b'Server is shutting down...')
@@ -63,7 +64,7 @@ class SimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(b'Not Found')
 
 def run_server():
-    with socketserver.TCPServer(("", PORT), SimpleHTTPRequestHandler) as httpd:
+    with socketserver.TCPServer(("0.0.0.0", PORT), SimpleHTTPRequestHandler) as httpd:
         print(f"Serving on port {PORT}")
         while not shutdown_flag.is_set():
             httpd.handle_request()

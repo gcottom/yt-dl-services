@@ -1,6 +1,7 @@
 package http_client
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 )
@@ -26,7 +27,7 @@ func (h *HTTPClient) CreateRequest(method string, url string, body []byte) (*htt
 }
 
 func (h *HTTPClient) CreateOctetStreamRequest(method string, url string, body []byte) (*http.Request, error) {
-	req, err := http.NewRequest(method, url, nil)
+	req, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

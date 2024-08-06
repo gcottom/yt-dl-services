@@ -1,4 +1,3 @@
-import io
 import os
 import numpy as np
 import librosa
@@ -37,7 +36,6 @@ def batch_data(audio_file, n_frames, overlap):
     - audio_rep: raw audio representation (spectrogram).
     Data format: 2D np.array (time, frequency)
     '''
-    audio_file = io.BytesIO(audio_file)
     # compute the log-mel spectrogram with librosa
     audio, sr = librosa.load(audio_file, sr=config.SR)
     audio_rep = librosa.feature.melspectrogram(y=audio, 

@@ -6,10 +6,6 @@ type Failure struct {
 	Error string `json:"error"`
 }
 
-type Success struct {
-	any
-}
-
 type StartDownloadResponse struct {
 	State string `json:"state"`
 }
@@ -23,5 +19,5 @@ func ResponseInternalError(ctx *gin.Context, err error) {
 }
 
 func ResponseSuccess(ctx *gin.Context, data any) {
-	ctx.JSON(200, Success{data})
+	ctx.JSON(200, data)
 }

@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"image/png"
+	"image"
 	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/gcottom/go-zaplog"
-	"github.com/gcottom/mp4meta"
+	"github.com/gcottom/mp3meta"
+	"github.com/gcottom/retry"
 	"github.com/gcottom/yt-dl-services/downloader/track_sql"
 	"github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
@@ -20,27 +21,30 @@ import (
 )
 
 func (s *Service) SaveMeta(ctx context.Context, data []byte, trackData track_sql.Track) ([]byte, TrackMeta, error) {
-	tag, err := mp4meta.ReadMP4(bytes.NewReader(data))
+	tag, err := mp3meta.ParseMP3(bytes.NewReader(data))
 	if err != nil {
-		zaplog.ErrorC(ctx, "failed to read mp4", zap.Error(err))
+		zaplog.ErrorC(ctx, "failed to read mp3", zap.Error(err))
 		return nil, TrackMeta{}, err
 	}
-	trackMeta, err := s.GetYTMetaFromID(ctx, trackData)
+	res, err := retry.Retry(retry.NewAlgSimpleDefault(), 5, s.GetYTMetaFromID, ctx, trackData)
 	if err != nil {
 		zaplog.ErrorC(ctx, "failed to get yt meta", zap.Error(err))
 		return nil, TrackMeta{}, err
 	}
-	spotifyMetas, err := s.GetSpotifyMeta(ctx, trackMeta)
+	trackMeta := res[0].(TrackMeta)
+	res, err = retry.Retry(retry.NewAlgSimpleDefault(), 5, s.GetSpotifyMeta, ctx, trackMeta)
 	if err != nil {
 		zaplog.ErrorC(ctx, "failed to get spotify meta", zap.Error(err))
 		return nil, TrackMeta{}, err
 	}
+	spotifyMetas := res[0].([]TrackMeta)
 	bestMeta := s.GetBestMetaMatch(ctx, trackMeta, spotifyMetas)
+	zaplog.InfoC(ctx, "best meta match", zap.String("title", bestMeta.Title), zap.String("artist", bestMeta.Artist))
 
 	tag.SetTitle(bestMeta.Title)
 	tag.SetArtist(bestMeta.Artist)
 	tag.SetAlbum(bestMeta.Album)
-	tag.SetGenre(bestMeta.Genre)
+	tag.SetGenre(trackData.Genre)
 	if bestMeta.CoverArtURL != "" {
 		response, err := http.Get(bestMeta.CoverArtURL)
 		if err != nil {
@@ -48,7 +52,7 @@ func (s *Service) SaveMeta(ctx context.Context, data []byte, trackData track_sql
 			return nil, TrackMeta{}, err
 		}
 		defer response.Body.Close()
-		img, err := png.Decode(response.Body)
+		img, _, err := image.Decode(response.Body)
 		if err != nil {
 			zaplog.ErrorC(ctx, "failed to decode cover art", zap.Error(err))
 			return nil, TrackMeta{}, err
@@ -64,7 +68,7 @@ func (s *Service) SaveMeta(ctx context.Context, data []byte, trackData track_sql
 }
 
 func (s *Service) GetYTMetaFromID(ctx context.Context, trackData track_sql.Track) (TrackMeta, error) {
-	req, err := s.HTTPClient.CreateRequest(http.MethodGet, fmt.Sprintf("%s:%d/%s?id=%s", s.Config.BaseURL, s.Config.Ports.MusicAPI, s.Config.Endpoints.Meta, trackData.ID), nil)
+	req, err := s.HTTPClient.CreateRequest(http.MethodGet, fmt.Sprintf("http://music-api:%d%s?id=%s", s.Config.Ports.MusicAPI, s.Config.Endpoints.Meta, trackData.ID), nil)
 	if err != nil {
 		zaplog.ErrorC(ctx, "failed to create meta request", zap.Error(err))
 		return TrackMeta{}, err
@@ -74,16 +78,18 @@ func (s *Service) GetYTMetaFromID(ctx context.Context, trackData track_sql.Track
 		zaplog.ErrorC(ctx, "error while sending meta request", zap.Error(err))
 		return TrackMeta{}, err
 	}
-	var meta TrackMeta
+	var meta YTMMetaResponse
 	if err = json.Unmarshal(res, &meta); err != nil {
 		zaplog.ErrorC(ctx, "failed to unmarshal meta response", zap.Error(err))
 		return TrackMeta{}, err
 	}
-	return meta, nil
+	outmeta := TrackMeta{Artist: meta.Author, Title: meta.Title, CoverArtURL: meta.Image}
+	return outmeta, nil
 }
 
 func (s *Service) GetSpotifyMeta(ctx context.Context, trackMeta TrackMeta) ([]TrackMeta, error) {
 	searchTerm := fmt.Sprintf("track:%s artist:%s", trackMeta.Title, trackMeta.Artist)
+	zaplog.InfoC(ctx, "searching spotify", zap.String("searchTerm", searchTerm))
 
 	token, err := s.GetSpotifyToken(ctx)
 	if err != nil {
@@ -100,7 +106,7 @@ func (s *Service) GetSpotifyMeta(ctx context.Context, trackMeta TrackMeta) ([]Tr
 		return nil, err
 	}
 
-	uniqueTrackMetas := make(map[spotify.ID]TrackMeta)
+	trackMetas := make([]TrackMeta, 0)
 	for _, track := range res.Tracks.Tracks {
 		resMeta := TrackMeta{}
 		if len(track.Album.Images) > 0 {
@@ -115,14 +121,10 @@ func (s *Service) GetSpotifyMeta(ctx context.Context, trackMeta TrackMeta) ([]Tr
 		resMeta.Artist = strings.Join(artists, ", ")
 		resMeta.Album = track.Album.Name
 		resMeta.Title = track.Name
-		uniqueTrackMetas[track.ID] = resMeta
+		trackMetas = append(trackMetas, resMeta)
 	}
 
-	trackMetas := make([]TrackMeta, 0)
-	for _, trackMeta := range uniqueTrackMetas {
-		trackMetas = append(trackMetas, trackMeta)
-	}
-
+	zaplog.InfoC(ctx, "spotify search results", zap.Any("results", trackMetas))
 	return trackMetas, nil
 }
 func (s *Service) GetSpotifyToken(ctx context.Context) (*oauth2.Token, error) {
@@ -135,16 +137,36 @@ func (s *Service) GetSpotifyToken(ctx context.Context) (*oauth2.Token, error) {
 }
 
 func (s *Service) GetBestMetaMatch(ctx context.Context, trackMeta TrackMeta, spotifyMetas []TrackMeta) TrackMeta {
-	if len(spotifyMetas) == 0 {
-		return trackMeta
-	}
 	coverArtist := s.CoverArtistCheck(ctx, trackMeta.Title)
+	if coverArtist != "" {
+		zaplog.InfoC(ctx, "cover artist found", zap.String("coverArtist", coverArtist))
+	}
 	sanitizedTitle := s.SanitizeString(s.SanitizeParenthesis(trackMeta.Title))
+	zaplog.InfoC(ctx, "sanitized title", zap.String("title", sanitizedTitle))
 	featStrippedTitle := strings.Split(sanitizedTitle, "feat")[0]
+	zaplog.InfoC(ctx, "feat stripped title", zap.String("title", featStrippedTitle))
 	titles := []string{trackMeta.Title, sanitizedTitle, featStrippedTitle}
 	artists := []string{trackMeta.Artist}
 	if coverArtist != "" {
 		artists = append(artists, s.SanitizeAuthor(coverArtist))
+	}
+	if len(spotifyMetas) == 0 {
+		spotifyMetas, err := s.GetSpotifyMeta(ctx, TrackMeta{Title: sanitizedTitle, Artist: trackMeta.Artist})
+		if err != nil {
+			zaplog.ErrorC(ctx, "failed to get spotify meta", zap.Error(err))
+			return TrackMeta{Title: sanitizedTitle, Artist: trackMeta.Artist, Album: sanitizedTitle, Genre: trackMeta.Genre, CoverArtURL: trackMeta.CoverArtURL}
+		}
+		if coverArtist != "" {
+			caSpotifyMetas, err := s.GetSpotifyMeta(ctx, TrackMeta{Title: sanitizedTitle, Artist: coverArtist})
+			if err != nil {
+				zaplog.ErrorC(ctx, "failed to get spotify meta", zap.Error(err))
+				return TrackMeta{Title: sanitizedTitle, Artist: trackMeta.Artist, Album: sanitizedTitle, Genre: trackMeta.Genre, CoverArtURL: trackMeta.CoverArtURL}
+			}
+			spotifyMetas = append(spotifyMetas, caSpotifyMetas...)
+		}
+		if len(spotifyMetas) == 0 {
+			return TrackMeta{Title: sanitizedTitle, Artist: trackMeta.Artist, Album: sanitizedTitle, Genre: trackMeta.Genre, CoverArtURL: trackMeta.CoverArtURL}
+		}
 	}
 	sanitizedSplits := strings.Split(strings.ReplaceAll(sanitizedTitle, ":", "-"), "-")
 	if len(sanitizedSplits) < 2 {
@@ -180,6 +202,8 @@ func (s *Service) GetBestMetaMatch(ctx context.Context, trackMeta TrackMeta, spo
 	for i, artist := range artists {
 		artists[i] = strings.Trim(strings.ReplaceAll(artist, "  ", " "), " ")
 	}
+	zaplog.InfoC(ctx, "titles", zap.Strings("titles", titles))
+	zaplog.InfoC(ctx, "artists", zap.Strings("artists", artists))
 
 	for _, spotifyMeta := range spotifyMetas {
 		if coverArtist != "" {
@@ -202,7 +226,7 @@ func (s *Service) GetBestMetaMatch(ctx context.Context, trackMeta TrackMeta, spo
 		}
 	}
 
-	return trackMeta
+	return TrackMeta{Title: sanitizedTitle, Artist: trackMeta.Artist, Album: "", Genre: trackMeta.Genre, CoverArtURL: trackMeta.CoverArtURL}
 }
 
 func (s *Service) SanitizeString(str string) string {

@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Set the entrypoint to run your Python application
-ENTRYPOINT ["python", "musicAPI.py"]
+ENTRYPOINT ["python", "music-api.py"]

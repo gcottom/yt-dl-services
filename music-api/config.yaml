@@ -1,0 +1,21 @@
+downloadDir: ./downloads
+tempDir: ./temp
+dbPath: ./database.db
+ffmpegPath: ./../ffmpeg/ffmpeg
+spotify:
+  clientID: 05ea53f7c95843d8b0763263181db5a7
+  clientSecret: 425bdf7a1a374ba29feebc6fd0f70efb
+baseURL: http://localhost
+ports:
+  downloader: 50999
+  genre: 50998
+  musicAPI: 50997
+endpoints:
+  genre: /genre
+  meta: /meta
+  playlist: /playlist
+
+concurrency:
+  download: 25
+  conversion: 5
+  genre: 5

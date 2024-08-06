@@ -5,6 +5,8 @@ FROM python:3.10.14
 RUN apt-get update && apt-get install -y \
     libhdf5-dev \
     gcc \
+    libsndfile1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory inside the container
@@ -21,4 +23,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Set the entrypoint to run your Python application
-ENTRYPOINT ["python", "genre.py"]
+ENTRYPOINT ["python3.10", "genre.py"]

@@ -7,7 +7,7 @@ import (
 )
 
 type ConverterService interface {
-	Convert(ctx context.Context, b []byte) ([]byte, error)
+	Convert(ctx context.Context, id string) error
 }
 
 type Service struct {

@@ -34,7 +34,7 @@ type Config struct {
 
 func LoadConfigFromFile(path string) (*Config, error) {
 	if path == "" {
-		path = "config/config.yaml"
+		path = "./config/config.yaml"
 	}
 	file, err := os.Open(path)
 	if err != nil {

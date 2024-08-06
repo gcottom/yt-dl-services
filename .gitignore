@@ -1,0 +1,7 @@
+*.temp
+*.mp3
+*lib*
+*bin*
+**/bin/**
+**/lib/**
+genre/bin/*

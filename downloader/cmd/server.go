@@ -6,9 +6,9 @@ import (
 	"net/http"
 
 	"github.com/gcottom/go-zaplog"
+	"github.com/gcottom/qgin/qgin"
 	"github.com/gcottom/yt-dl-services/downloader/config"
 	"github.com/gcottom/yt-dl-services/downloader/handlers"
-	"github.com/gcottom/yt-dl-services/downloader/pkg/gin_middleware"
 	"github.com/gcottom/yt-dl-services/downloader/pkg/http_client"
 	"github.com/gcottom/yt-dl-services/downloader/services/download"
 	"github.com/gcottom/yt-dl-services/downloader/track_sql"
@@ -40,8 +40,21 @@ func RunServer(cfg *config.Config) error {
 	zaplog.InfoC(ctx, "creating download service")
 	downloadService := download.NewDownloadService(cfg, httpClient, trackSQL)
 
+	zaplog.InfoC(ctx, "starting queue processor")
+	go downloadService.QueueProcessor(ctx)
+
+	zaplog.InfoC(ctx, "starting re-driver")
+	go downloadService.ReDriverProcessor(ctx)
+
 	zaplog.InfoC(ctx, "creating gin engine")
-	ginws := gin_middleware.NewGinEngine(ctx)
+	ginws := qgin.NewGinEngine(&ctx, &qgin.Config{
+		UseContextMW:       true,
+		UseLoggingMW:       true,
+		UseRequestIDMW:     true,
+		InjectRequestIDCTX: true,
+		LogRequestID:       true,
+		ProdMode:           true,
+	})
 
 	zaplog.InfoC(ctx, "setting up routes")
 	handlers.SetupRoutes(ginws, downloadService)
